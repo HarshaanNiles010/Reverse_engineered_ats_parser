@@ -12,3 +12,5 @@ cargo run --release -- resume.pdf [-o report.html]
 
 Accepts PDF, HTML or TXT. Writes `<name>.ats.html` with a parse-health score, findings,
 per-ATS profile views, a keyword search box and the raw text layer.
+
+Man page: `man ./ats-viewer.1`, or install with `cp ats-viewer.1 /usr/local/share/man/man1/`.
