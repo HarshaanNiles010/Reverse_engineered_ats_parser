@@ -1,0 +1,8 @@
+[package]
+name = "ats-viewer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pdf-extract = "0.12"
+regex = "1.13.1"
