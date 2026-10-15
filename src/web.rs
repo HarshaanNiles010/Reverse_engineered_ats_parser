@@ -4,11 +4,13 @@
 use axum::{
     Router,
     body::Bytes,
-    extract::{DefaultBodyLimit, Query},
+    extract::{DefaultBodyLimit, Query, Request},
     http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
+use tower_http::trace::{DefaultOnResponse, TraceLayer};
+use tracing::{Level, Span, debug, error, info, info_span, warn};
 use std::{
     collections::HashMap,
     fs,
@@ -28,13 +30,23 @@ pub fn serve(port: u16) {
             .route("/analyze", post(analyze_upload))
             .route("/editor", get(|| async { Html(EDITOR) }))
             .route("/docx", post(docx))
-            .layer(DefaultBodyLimit::max(MAX_UPLOAD));
+            .layer(DefaultBodyLimit::max(MAX_UPLOAD))
+            .layer(
+                TraceLayer::new_for_http()
+                    // Path only: the query carries the uploaded file name, which often holds the candidate's name.
+                    .make_span_with(|r: &Request| {
+                        static ID: AtomicU64 = AtomicU64::new(1);
+                        info_span!("req", id = ID.fetch_add(1, Ordering::Relaxed), method = %r.method(), path = r.uri().path())
+                    })
+                    .on_response(DefaultOnResponse::new().level(Level::INFO)),
+            );
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap_or_else(|e| {
             eprintln!("cannot bind {addr}: {e}");
             std::process::exit(1);
         });
         println!("ats-viewer: open http://{addr}  (local only; uploads are deleted after parsing)");
+        info!(%addr, "listening");
         axum::serve(listener, app).await.expect("server error");
     });
 }
@@ -45,15 +57,20 @@ async fn analyze_upload(Query(q): Query<HashMap<String, String>>, body: Bytes) -
     let name = q.get("name").cloned().unwrap_or_default();
     let json = q.get("format").is_some_and(|f| f == "json");
     let ext = Path::new(&name).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    debug!(%ext, bytes = body.len(), json, "upload");
     if !TYPES.contains(&ext.as_str()) {
+        warn!(%ext, "rejected: unsupported type");
         return (StatusCode::BAD_REQUEST, format!("Unsupported file type '.{ext}'. Use PDF, DOCX, HTML or TXT.")).into_response();
     }
     if body.is_empty() {
+        warn!("rejected: empty body");
         return (StatusCode::BAD_REQUEST, "The file is empty.").into_response();
     }
     static N: AtomicU64 = AtomicU64::new(0);
     let tmp = std::env::temp_dir().join(format!("ats-viewer-{}-{}.{ext}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+    let span = Span::current(); // spawn_blocking does not inherit the request span
     let result = tokio::task::spawn_blocking(move || {
+        let _g = span.enter();
         let r = write_private(&tmp, &body).map_err(|e| format!("cannot store upload: {e}")).and_then(|_| crate::analyze(&tmp, &name));
         let _ = fs::remove_file(&tmp);
         r
@@ -63,7 +80,10 @@ async fn analyze_upload(Query(q): Query<HashMap<String, String>>, body: Bytes) -
         Ok(Ok((_, _, j))) if json => ([(header::CONTENT_TYPE, "application/json")], j).into_response(),
         Ok(Ok((html, _, _))) => Html(html.replacen("<main>", "<main><p><a href=\"/\">← Analyze another resume</a></p>", 1)).into_response(),
         Ok(Err(e)) => (StatusCode::UNPROCESSABLE_ENTITY, e).into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "The parser crashed on this file.").into_response(),
+        Err(e) => {
+            error!(error = %e, "parser task panicked");
+            (StatusCode::INTERNAL_SERVER_ERROR, "The parser crashed on this file.").into_response()
+        }
     }
 }
 
@@ -71,11 +91,18 @@ async fn analyze_upload(Query(q): Query<HashMap<String, String>>, body: Bytes) -
 /// minimal DOCX (Letter page, 0.6 in margins, no headers, footers, tables or text boxes).
 async fn docx(body: Bytes) -> Response {
     let Ok(paras) = std::str::from_utf8(&body) else {
+        warn!("docx: body is not UTF-8");
         return (StatusCode::BAD_REQUEST, "Body must be UTF-8 XML.").into_response();
     };
     match build_docx(paras) {
-        Ok(b) => ([(header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")], b).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(b) => {
+            debug!(xml_bytes = paras.len(), docx_bytes = b.len(), "docx built");
+            ([(header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")], b).into_response()
+        }
+        Err(e) => {
+            error!(error = %e, "docx build failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     }
 }
 

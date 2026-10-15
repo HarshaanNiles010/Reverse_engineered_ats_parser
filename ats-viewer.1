@@ -138,6 +138,30 @@ spaces. No stemming or synonyms.
 .TP
 .B Raw text
 The full extracted text layer.
+.SH ENVIRONMENT
+.TP
+.B RUST_LOG
+Log filter for diagnostics written to standard error, in
+.B tracing-subscriber
+EnvFilter syntax. Default:
+.B ats_viewer=info,tower_http=info
+for
+.BR serve ,
+.B warn
+otherwise.
+.IP
+.B info
+logs one line per request (id, method, path, status, latency) and per
+analysis (type, size, score, finding counts, time).
+.B debug
+adds each stage: ingest, DOCX parts, text extraction, sections found and
+parsed counts.
+.B trace
+adds every finding and the full extracted text, which contain resume
+content. File names and query strings are never logged.
+.IP
+Example:
+.B RUST_LOG=ats_viewer=debug ats-viewer serve
 .SH EXIT STATUS
 .TP
 .B 0

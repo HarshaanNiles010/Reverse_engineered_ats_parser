@@ -5,7 +5,8 @@
 
 use regex::Regex;
 use std::fmt::Write as _;
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::Instant};
+use tracing::{debug, info, trace, warn};
 
 mod web;
 
@@ -329,7 +330,10 @@ fn extract(path: &Path) -> Result<String, String> {
             let p = path.to_path_buf();
             // pdf-extract panics on some malformed PDFs; treat that as an extraction failure.
             std::panic::catch_unwind(move || pdf_extract::extract_text(&p))
-                .map_err(|_| "PDF parser crashed on this file (an ATS parser may fail too)".to_string())?
+                .map_err(|_| {
+                    warn!("pdf-extract panicked");
+                    "PDF parser crashed on this file (an ATS parser may fail too)".to_string()
+                })?
                 .map_err(|e| format!("PDF text extraction failed: {e}"))
         }
         "txt" => fs::read_to_string(path).map_err(|e| e.to_string()),
@@ -395,6 +399,7 @@ fn read_docx(path: &Path) -> Result<String, String> {
         v.into_iter().map(|n| read(n).map(|x| docx_xml_text(&x))).collect::<Result<Vec<_>, _>>().map(|t| t.join("\n"))
     };
     let (headers, footers) = (parts("word/header")?, parts("word/footer")?);
+    debug!(parts = names.len(), body_bytes = body.len(), header_chars = headers.len(), footer_chars = footers.len(), "docx read");
     let mut notes = vec![];
     if names.iter().any(|n| n.ends_with("vbaProject.bin")) {
         notes.push("high|Contains VBA macros: Workday's upload scan flags containsMacros and blocks the file.");
@@ -424,6 +429,12 @@ fn normalize(s: &str) -> String {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // RUST_LOG overrides, e.g. RUST_LOG=ats_viewer=debug. Defaults: info for serve, warnings only for the CLI.
+    let default = if args.get(1).map(String::as_str) == Some("serve") { "ats_viewer=info,tower_http=info" } else { "warn" };
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| default.into()))
+        .with_writer(std::io::stderr)
+        .init();
     if args.get(1).map(String::as_str) == Some("serve") {
         let port = args.get(2).and_then(|p| p.parse().ok()).unwrap_or(8080);
         return web::serve(port);
@@ -453,9 +464,13 @@ fn main() {
 /// Parses one resume file. Returns the HTML report, a plain-text summary, and the parsed fields
 /// as JSON (the editor's import format).
 /// `display_name` is shown in the report instead of the on-disk path (uploads use temp files).
+/// Logs carry counts, sizes and timings only; resume text appears only at trace level.
+#[tracing::instrument(level = "debug", skip_all, err(level = "warn"))]
 fn analyze(path: &Path, display_name: &str) -> Result<(String, String, String), String> {
+    let t0 = Instant::now();
     let size = fs::metadata(path).map_err(|e| format!("cannot read {display_name}: {e}"))?.len();
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    debug!(%ext, bytes = size, "ingest");
     let mut warns: Vec<Warn> = vec![];
     let mut w = |sev: &'static str, msg: String| warns.push(Warn { sev, msg });
 
@@ -485,6 +500,8 @@ fn analyze(path: &Path, display_name: &str) -> Result<(String, String, String), 
         })
         .collect();
     let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    debug!(chars = text.chars().count(), lines = lines.len(), words = text.split_whitespace().count(), ms = t0.elapsed().as_millis() as u64, "text extracted");
+    trace!(%text, "raw text layer");
     if text.split_whitespace().count() < 50 {
         w("high", "Almost no text layer. Image-only PDF (Canva/scan): every ATS field will be empty.".into());
     }
@@ -577,6 +594,8 @@ fn analyze(path: &Path, display_name: &str) -> Result<(String, String, String), 
         }
     }
 
+    debug!(sections = ?sections.iter().map(|s| s.0).collect::<Vec<_>>(), "sections");
+
     // 7. Body sections.
     let (rr, dr) = (range_re(), single_date_re());
     let exps = parse_experience(&sec("experience"), &rr);
@@ -585,6 +604,7 @@ fn analyze(path: &Path, display_name: &str) -> Result<(String, String, String), 
     let certs: Vec<String> = sec("certifications").iter().map(|l| take_dates(l, &rr, &dr).2).collect();
     let flat_skills: Vec<&String> = skills.iter().flat_map(|g| &g.1).collect();
     let languages: Vec<&&String> = flat_skills.iter().filter(|s| SPOKEN.contains(&s.to_lowercase().as_str())).collect();
+    debug!(jobs = exps.len(), schools = edus.len(), skills = flat_skills.len(), certs = certs.len(), stray_certs = stray_certs.len(), urls = urls.len(), "parsed");
 
     for e in &exps {
         if e.company.is_empty() {
@@ -629,6 +649,11 @@ fn analyze(path: &Path, display_name: &str) -> Result<(String, String, String), 
     // 8. Heuristic confidence score (vendor scores are not visible; this is ours).
     let score = warns.iter().fold(100i32, |s, x| s - match x.sev { "high" => 12, "med" => 5, _ => 1 }).max(0);
     warns.sort_by_key(|x| match x.sev { "high" => 0, "med" => 1, _ => 2 });
+    for x in &warns {
+        trace!(sev = x.sev, msg = %x.msg, "finding");
+    }
+    let count = |sev: &str| warns.iter().filter(|x| x.sev == sev).count();
+    info!(%ext, bytes = size, score, high = count("high"), med = count("med"), low = count("low"), ms = t0.elapsed().as_millis() as u64, "analyzed");
 
     // ---------- HTML ----------
     let mut h = String::new();

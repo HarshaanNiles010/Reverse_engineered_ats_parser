@@ -26,4 +26,10 @@ per-ATS profile views, a keyword search box and the raw text layer.
 - Output is single-column, without tables, text boxes, headers or footers, with standard section names, hyphen bullets, "Mon YYYY" dates and plain-ASCII punctuation.
 - Several resumes are kept in the browser's local storage, with undo.
 
+### Debug logging
+
+Logs go to stderr, filtered by `RUST_LOG`: `RUST_LOG=ats_viewer=debug cargo run --release -- serve`
+shows each parse stage under a per-request id. `trace` also logs findings and the extracted text
+(resume content); lower levels log only counts, sizes and timings, never file names.
+
 Man page: `man ./ats-viewer.1`, or install with `cp ats-viewer.1 /usr/local/share/man/man1/`.
