@@ -438,7 +438,7 @@ fn main() {
         None => format!("{}.ats.html", path.file_stem().and_then(|s| s.to_str()).unwrap_or("resume")),
     };
     let name = path.file_name().unwrap_or_default().to_string_lossy();
-    let (html, summary) = analyze(path, &name).unwrap_or_else(|e| {
+    let (html, summary, _) = analyze(path, &name).unwrap_or_else(|e| {
         eprintln!("{e}");
         std::process::exit(1);
     });
@@ -450,9 +450,10 @@ fn main() {
     println!("Report: {out_path}");
 }
 
-/// Parses one resume file. Returns the HTML report and a plain-text summary.
+/// Parses one resume file. Returns the HTML report, a plain-text summary, and the parsed fields
+/// as JSON (the editor's import format).
 /// `display_name` is shown in the report instead of the on-disk path (uploads use temp files).
-fn analyze(path: &Path, display_name: &str) -> Result<(String, String), String> {
+fn analyze(path: &Path, display_name: &str) -> Result<(String, String, String), String> {
     let size = fs::metadata(path).map_err(|e| format!("cannot read {display_name}: {e}"))?.len();
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     let mut warns: Vec<Warn> = vec![];
@@ -784,7 +785,41 @@ q.oninput=()=>{{const k=n(q.value);if(!k){{res.textContent="";return}}const c=T.
     for x in warns.iter().filter(|x| x.sev != "low").take(8) {
         let _ = writeln!(summary, "  [{}] {}", x.sev, x.msg);
     }
-    Ok((h, summary))
+    let list = |v: Vec<String>| format!("[{}]", v.join(","));
+    let strs = |v: &[String]| list(v.iter().map(|x| jstr(x)).collect());
+    let json = format!(
+        r#"{{"name":{},"email":{},"phone":{},"location":{},"links":{},"summary":{},"experience":{},"education":{},"skills":{},"certifications":{},"languages":{}}}"#,
+        jstr(name.copied().unwrap_or("")),
+        jstr(email.as_deref().unwrap_or("")),
+        jstr(phone.as_deref().unwrap_or("")),
+        jstr(&location.as_ref().map(|(c, r)| format!("{c}, {r}")).unwrap_or_default()),
+        strs(&urls),
+        jstr(&sec("summary").join(" ")),
+        list(exps.iter().map(|e| format!(r#"{{"title":{},"company":{},"location":{},"from":{},"to":{},"bullets":{}}}"#,
+            jstr(&e.title), jstr(&e.company), jstr(&e.location), jstr(&e.from), jstr(&e.raw_to), strs(&e.description))).collect()),
+        list(edus.iter().map(|e| format!(r#"{{"school":{},"location":{},"degree":{},"major":{},"from":{},"to":{}}}"#,
+            jstr(&e.school), jstr(&e.location), jstr(&e.degree), jstr(&e.major), jstr(&e.from), jstr(&e.to))).collect()),
+        list(skills.iter().map(|g| format!(r#"{{"group":{},"items":{}}}"#, jstr(&g.0), strs(&g.1))).collect()),
+        strs(&certs),
+        list(languages.iter().map(|l| jstr(l)).collect()),
+    );
+    Ok((h, summary, json))
+}
+
+fn jstr(s: &str) -> String {
+    let mut o = String::from('"');
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(o, "\\u{:04x}", c as u32);
+            }
+            c => o.push(c),
+        }
+    }
+    o.push('"');
+    o
 }
 
 #[cfg(test)]
@@ -824,6 +859,17 @@ mod tests {
         assert_eq!((ed[0].location.as_str(), ed[0].from.as_str(), ed[0].to.as_str(), ed[0].major.as_str()), ("Edmonton, Alberta", "Sep 2018", "Jun 2022", "Computer Science"));
         assert_eq!(stray, vec!["CompTIA Security+"]);
         assert_eq!(split_skills("AWS (EC2, S3), Docker; Rust"), vec!["AWS (EC2, S3)", "Docker", "Rust"]);
+    }
+
+    #[test]
+    fn generated_docx_reads_back() {
+        let tmp = std::env::temp_dir().join(format!("ats-viewer-test-{}.docx", std::process::id()));
+        let paras = r#"<w:p><w:r><w:t>Jane Doe</w:t></w:r></w:p><w:p><w:r><w:t>Acme</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>Toronto, ON</w:t></w:r></w:p>"#;
+        fs::write(&tmp, web::build_docx(paras).unwrap()).unwrap();
+        let text = read_docx(&tmp);
+        let _ = fs::remove_file(&tmp);
+        assert_eq!(text.unwrap().trim(), "Jane Doe\nAcme\tToronto, ON");
+        assert_eq!(jstr("a\"b\\\n"), r#""a\"b\\\u000a""#);
     }
 
     #[test]

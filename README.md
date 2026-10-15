@@ -15,4 +15,15 @@ Accepts PDF, DOCX, HTML or TXT. Writes `<name>.ats.html` with a parse-health sco
 per-ATS profile views, a keyword search box and the raw text layer.
 `serve` shows the same report in the browser; uploads stay on your machine and are deleted after parsing.
 
+### Resume editor
+
+`serve` also hosts a resume editor at `http://127.0.0.1:8080/editor`:
+
+- Build a resume from scratch or an example, or import an existing PDF/DOCX/HTML/TXT (pre-filled from the parser's output).
+- Live checks for missing fields, malformed dates and locations, placeholder links and multi-role titles.
+- Live preview; export DOCX, HTML or PDF (print dialog), and JSON for backup.
+- One-click ATS check runs this tool's parser on the DOCX or HTML output.
+- Output is single-column, without tables, text boxes, headers or footers, with standard section names, hyphen bullets, "Mon YYYY" dates and plain-ASCII punctuation.
+- Several resumes are kept in the browser's local storage, with undo.
+
 Man page: `man ./ats-viewer.1`, or install with `cp ats-viewer.1 /usr/local/share/man/man1/`.

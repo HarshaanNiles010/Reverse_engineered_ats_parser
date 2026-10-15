@@ -1,0 +1,377 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Resume Editor</title><style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1d2330;--mut:#667085;--line:#d5d9e0;--hi:#c0362c;--med:#b7791f;--ok:#2f855a;--acc:#2456c7;--paper:#e9ecf1}
+@media (prefers-color-scheme:dark){:root{--bg:#12151b;--card:#1b1f27;--fg:#e6e8ec;--mut:#98a2b3;--line:#3a414d;--hi:#f0706a;--med:#e0b050;--ok:#5fc48a;--acc:#7aa2ff;--paper:#0d1014}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif}
+header{position:sticky;top:0;z-index:2;background:var(--card);border-bottom:1px solid var(--line);padding:8px 16px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+header h1{font-size:16px;margin:0 10px 0 0}header a{color:var(--acc)}
+button,select,input,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 9px}
+button{cursor:pointer;background:var(--card)}button:hover{border-color:var(--acc)}button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.sep{width:1px;height:24px;background:var(--line);margin:0 4px}
+#wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+@media (max-width:1000px){#wrap{grid-template-columns:1fr}#right{position:static!important;height:80vh!important}}
+#left{padding:16px;min-width:0}#right{position:sticky;top:50px;height:calc(100vh - 50px);display:flex;flex-direction:column;background:var(--paper);border-left:1px solid var(--line)}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:0 0 14px}
+section h2{font-size:15px;margin:0 0 10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}@media (max-width:520px){.grid{grid-template-columns:1fr}}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mut)}label input,label textarea,label select{width:100%;font-size:14px}
+label.wide{grid-column:1/-1}textarea{resize:vertical}
+.bad{border-color:var(--hi)!important;outline:none}
+fieldset.item{border:1px solid var(--line);border-radius:8px;margin:0 0 10px;padding:10px 12px}fieldset.item legend{font-size:12px;color:var(--mut);padding:0 4px}
+.acts{grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end}.acts button{padding:2px 9px;font-size:12px}
+#checks{margin:0;padding-left:18px}#checks li{margin:2px 0}.high{color:var(--hi)}.med{color:var(--med)}.ok{color:var(--ok)}.note{color:var(--mut);font-size:12px}
+.tabs{display:flex;gap:4px;padding:8px 12px 0}.tabs button{border-radius:6px 6px 0 0;border-bottom:0}.tabs button[aria-selected=true]{background:var(--acc);color:#fff;border-color:var(--acc)}
+#right iframe{flex:1;width:100%;border:0;background:#fff}
+.vh{position:absolute;width:1px;height:1px;opacity:0}
+</style></head><body>
+<header>
+<h1>Resume Editor</h1>
+<select id=docs aria-label="Saved resumes"></select>
+<input id=title aria-label="Resume name" size=14>
+<button data-cmd=new>New</button><button data-cmd=example>New from example</button><button data-cmd=dup>Duplicate</button><button data-cmd=del>Delete</button><button data-cmd=undo>Undo</button>
+<span class=sep></span>
+<label class=vh for=imp>Import resume</label><input id=imp class=vh type=file accept=".pdf,.docx,.html,.htm,.txt"><button data-cmd=imp>Import resume file</button>
+<label class=vh for=impj>Import JSON</label><input id=impj class=vh type=file accept=".json,application/json"><button data-cmd=impj>Import JSON</button><button data-cmd=json>Export JSON</button>
+<span class=sep></span>
+<button data-cmd=docx class=pri>Download DOCX</button><button data-cmd=html>Download HTML</button><button data-cmd=print>Print / Save PDF</button>
+<span class=sep></span>
+<button data-cmd=check-docx>ATS check (DOCX)</button><button data-cmd=check-html>ATS check (HTML)</button>
+<a href="/">Upload page</a>
+<span id=status class=note role=status></span>
+</header>
+<div id=wrap><div id=left>
+<section><h2>Live checks</h2><ul id=checks></ul>
+<p class=note>Output is ATS-safe by construction: one column, no tables, text boxes, headers or footers, standard section names, hyphen bullets, one date format ("Jan 2020 - Present"), links with https://, and smart quotes, dashes and symbols written as plain ASCII.</p></section>
+<section><h2>Contact</h2><div class=grid>
+<label>Full name<input data-k=name placeholder="Jane Doe"></label>
+<label>Headline (optional)<input data-k=headline placeholder="Software Engineer"></label>
+<label>Email<input data-k=email type=email placeholder="jane@example.com"></label>
+<label>Phone<input data-k=phone placeholder="+1 604 555 0100"></label>
+<label>Location<input data-k=location placeholder="Vancouver, BC"></label>
+<label>Font<select data-k=font><option>Calibri</option><option>Arial</option><option>Georgia</option><option>Times New Roman</option></select></label>
+<label class=wide>Links, one per line<textarea data-k=links rows=2 placeholder="linkedin.com/in/janedoe&#10;github.com/janedoe"></textarea></label>
+</div></section>
+<section><h2>Summary</h2><label>Two to four sentences (optional)<textarea data-k=summary rows=4></textarea></label></section>
+<section><h2>Experience</h2><div id=l-experience></div><button data-act=add data-list=experience>Add job</button></section>
+<section><h2>Education</h2><div id=l-education></div><button data-act=add data-list=education>Add school</button></section>
+<section><h2>Skills</h2><div id=l-skills></div><button data-act=add data-list=skills>Add skill group</button>
+<label style="margin-top:10px">Spoken languages, comma separated (fills Workday's Languages field)<input data-k=languages placeholder="English, French"></label></section>
+<section><h2>Projects</h2><div id=l-projects></div><button data-act=add data-list=projects>Add project</button></section>
+<section><h2>Certifications</h2><div id=l-certifications></div><button data-act=add data-list=certifications>Add certification</button></section>
+<section><h2>Other sections</h2><div id=l-extra></div><button data-act=add data-list=extra>Add section</button></section>
+<p class=note>Saved automatically in this browser. Export JSON to back up or move a resume.</p>
+</div>
+<div id=right><div class=tabs role=tablist><button role=tab data-tab=prev aria-selected=true>Preview</button><button role=tab data-tab=rep aria-selected=false>ATS report</button></div>
+<iframe id=prev title="Resume preview"></iframe><iframe id=rep title="ATS report" hidden></iframe></div></div>
+<script>
+const KEY = "ats-editor-v1";
+const MONS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const EXTRA = ["Awards","Publications","Volunteer Experience","Achievements","Interests"];
+const FONTS = {Calibri:"Calibri,Carlito,Arial,sans-serif", Arial:"Arial,Helvetica,sans-serif", Georgia:"Georgia,serif", "Times New Roman":"'Times New Roman',Times,serif"};
+const LISTS = {
+  experience: ["Job", [["company","Company"],["location","Location","City, Region"],["title","Job title"],["from","Start","Jan 2022"],["to","End","Present"],["bullets","Bullet points, one per line","Cut API latency 40% by ...","ta"]]],
+  education: ["School", [["school","School","University of ..."],["location","Location","City, Region"],["degree","Degree","Bachelor of Science"],["major","Field of study","Computer Science"],["from","Start","Sep 2018"],["to","End or expected","Jun 2022"],["details","Details, one per line","GPA 3.8 / Dean's List","ta"]]],
+  skills: ["Group", [["group","Label (optional)","Languages"],["items","Skills, comma separated","Python, SQL, Docker"]]],
+  projects: ["Project", [["name","Project name"],["date","Date","2024"],["link","Link","github.com/you/project"],["bullets","Bullet points, one per line","","ta"]]],
+  certifications: ["Certification", [["name","Certification","AWS Certified Cloud Practitioner"],["issuer","Issuer","Amazon Web Services"],["date","Date","Sep 2024"]]],
+  extra: ["Section", [["title","Section","","sel"],["items","Entries, one per line","","ta"]]],
+};
+const blank = () => ({name:"",headline:"",email:"",phone:"",location:"",links:"",summary:"",languages:"",font:"Calibri",experience:[],education:[],skills:[],projects:[],certifications:[],extra:[]});
+const EXAMPLE = {name:"Jane Doe",headline:"Software Engineer",email:"jane.doe@example.com",phone:"+1 604 555 0100",location:"Vancouver, BC",links:"linkedin.com/in/janedoe\ngithub.com/janedoe",
+  summary:"Backend engineer with 4 years building APIs and data pipelines in Python and Rust. Shipped services handling 2M requests a day.",languages:"English, French",font:"Calibri",
+  experience:[{company:"Acme Corp",location:"Vancouver, BC",title:"Software Engineer",from:"Jan 2022",to:"Present",bullets:"Built a Rust ingestion service that cut processing time 60%\nLed migration of 30 endpoints from REST to gRPC"},
+    {company:"Beta Labs Inc.",location:"Toronto, ON",title:"Junior Developer",from:"Jun 2020",to:"Dec 2021",bullets:"Wrote Python ETL jobs feeding the analytics warehouse\nAdded CI checks that caught 90% of schema regressions"}],
+  education:[{school:"University of British Columbia",location:"Vancouver, BC",degree:"Bachelor of Science",major:"Computer Science",from:"Sep 2016",to:"May 2020",details:""}],
+  skills:[{group:"Languages",items:"Python, Rust, SQL, TypeScript"},{group:"Tools",items:"Docker, Kubernetes, PostgreSQL, AWS"}],
+  projects:[],certifications:[{name:"AWS Certified Cloud Practitioner",issuer:"Amazon Web Services",date:"Sep 2024"}],extra:[]};
+
+// ---------- state ----------
+let store;
+try { store = JSON.parse(localStorage.getItem(KEY)); } catch {}
+if (!store || !store.docs || !store.docs[store.cur]) store = {cur:"r1", docs:{r1:{title:"My resume", data:blank()}}};
+let D = store.docs[store.cur].data, hist = [], typedAt = 0;
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch { status("Could not save in this browser; export JSON to keep your work."); } };
+const snap = () => { const s = JSON.stringify(D); if (hist[hist.length - 1] !== s) hist.push(s); if (hist.length > 100) hist.shift(); };
+const status = t => { document.getElementById("status").textContent = t; };
+const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+// ---------- text normalization (what the parser-safe output contains) ----------
+const FANCY = /[‘’‚′“”„″–—―−…•●▪■◦►➤→✓✔◆★ﬀ-ﬄ   ​-‍﻿-]/g;
+const A = s => String(s ?? "").replace(/[‘’‚′]/g,"'").replace(/[“”„″]/g,'"').replace(/[–—―−]/g,"-")
+  .replace(/…/g,"...").replace(/[•●▪■◦►➤→✓✔◆★]/g,"-").replace(/ﬀ/g,"ff").replace(/ﬁ/g,"fi")
+  .replace(/ﬂ/g,"fl").replace(/ﬃ/g,"ffi").replace(/ﬄ/g,"ffl").replace(/[   ]/g," ").replace(/[​-‍﻿-]/g,"").trim();
+const BULLET = /^\s*[-*•●▪■◦►➤→✓✔◆★]\s*/;
+const lines = s => String(s ?? "").split("\n").map(l => A(l.replace(BULLET, ""))).filter(Boolean);
+const url = u => (u = A(u)) && (/^https?:\/\//i.test(u) ? u : "https://" + u);
+// Workday only maps "Present" to "I currently work here"; one month format everywhere.
+function nd(s) {
+  s = A(s); let m;
+  if (!s) return {s, ok:true};
+  if (/^(present|current|currently|now|today|ongoing)$/i.test(s)) return {s:"Present", ok:true};
+  if ((m = s.match(/^(\d{4})-(\d{1,2})$/)) || (m = s.match(/^(\d{1,2})[\/.](\d{4})$/)) && (m = [0, m[2], m[1]])) {
+    return +m[2] >= 1 && +m[2] <= 12 ? {s:MONS[m[2] - 1] + " " + m[1], ok:true} : {s, ok:false};
+  }
+  if ((m = s.match(/^([A-Za-z]{3,9})\.?,?\s+(\d{4})$/))) {
+    const i = MONS.findIndex(x => m[1].toLowerCase().startsWith(x.toLowerCase()));
+    if (i >= 0) return {s:MONS[i] + " " + m[2], ok:true};
+  }
+  return {s, ok:/^\d{4}$/.test(s)};
+}
+const range = (f, t) => { const a = nd(f).s, b = nd(t).s; return a && b ? a + " - " + b : b || a; };
+const locOk = s => !A(s) || /^[^,]+, [^,]+$/.test(A(s));
+const emailOk = s => !A(s) || /^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(A(s));
+const SCHOOL = /\b(university|college|institute|school|polytechnic|academy)\b/i;
+const DEGREE = /\b(bachelor|master|doctor|associate|diploma|b\.?\s?sc|b\.?\s?eng|b\.?\s?tech|m\.?\s?sc|mba|m\.?\s?eng|ph\.?\s?d)\b/i;
+
+// ---------- document model -> blocks -> HTML / DOCX ----------
+function blocks() {
+  const b = [], P = (k, o) => b.push({k, ...o}), list = k => D[k].filter(x => Object.entries(x).some(([f, v]) => f !== "title" && A(v)));
+  P("name", {t:A(D.name)});
+  if (A(D.headline)) P("line", {t:A(D.headline)});
+  const c = [A(D.email), A(D.phone), A(D.location), ...lines(D.links).map(url)].filter(Boolean);
+  if (c.length) P("line", {t:c.join(" | ")});
+  if (A(D.summary)) { P("h", {t:"SUMMARY"}); P("p", {t:A(D.summary).replace(/\s*\n\s*/g, " ")}); }
+  const ex = list("experience");
+  if (ex.length) P("h", {t:"EXPERIENCE"});
+  for (const x of ex) { P("row", {l:A(x.company), r:A(x.location), b:1}); P("row", {l:A(x.title), r:range(x.from, x.to), i:1}); lines(x.bullets).forEach(t => P("li", {t})); }
+  const ed = list("education");
+  if (ed.length) P("h", {t:"EDUCATION"});
+  for (const x of ed) { P("row", {l:A(x.school), r:A(x.location), b:1}); P("row", {l:[A(x.degree), A(x.major)].filter(Boolean).join(", "), r:range(x.from, x.to), i:1}); lines(x.details).forEach(t => P("li", {t})); }
+  const sk = list("skills");
+  if (sk.length || A(D.languages)) P("h", {t:"SKILLS"});
+  for (const x of sk) P("p", {t:(A(x.group) ? A(x.group) + ": " : "") + A(x.items)});
+  if (A(D.languages)) P("p", {t:"Spoken Languages: " + A(D.languages)});
+  const pr = list("projects");
+  if (pr.length) P("h", {t:"PROJECTS"});
+  for (const x of pr) { P("row", {l:A(x.name), r:nd(x.date).s, b:1}); if (A(x.link)) P("p", {t:url(x.link)}); lines(x.bullets).forEach(t => P("li", {t})); }
+  const ce = list("certifications");
+  if (ce.length) P("h", {t:"CERTIFICATIONS"});
+  for (const x of ce) P("row", {l:[A(x.name), A(x.issuer)].filter(Boolean).join(", "), r:nd(x.date).s});
+  for (const x of list("extra")) { P("h", {t:(x.title || EXTRA[0]).toUpperCase()}); lines(x.items).forEach(t => P("li", {t})); }
+  return b;
+}
+function html() {
+  const body = blocks().map(x => ({
+    name:`<h1>${esc(x.t)}</h1>`, line:`<p class=line>${esc(x.t)}</p>`, h:`<h2>${esc(x.t)}</h2>`, p:`<p>${esc(x.t)}</p>`, li:`<p class=li>- ${esc(x.t)}</p>`,
+    row:`<div class="row${x.b ? " b" : ""}${x.i ? " i" : ""}"><span>${esc(x.l)}</span> <span>${esc(x.r)}</span></div>`,
+  })[x.k]).join("\n");
+  return `<!doctype html><html lang=en><head><meta charset=utf-8><title>${esc(A(D.name) || "Resume")}</title><style>
+@page{size:letter;margin:0.6in}body{margin:0;background:#fff;color:#111;font:10.5pt/1.35 ${FONTS[D.font] || FONTS.Calibri}}
+.page{max-width:7.3in;margin:0 auto;padding:0.6in 0.4in}@media print{.page{padding:0;max-width:none}}
+h1{font-size:20pt;margin:0 0 2pt}h2{font-size:11pt;letter-spacing:.06em;border-bottom:1px solid #444;margin:12pt 0 4pt;padding-bottom:1pt;break-after:avoid}
+p{margin:2pt 0}.line{margin:0}.row{display:flex;justify-content:space-between;gap:12pt;break-after:avoid}.row.b{font-weight:700;margin-top:6pt}.row.i span:first-child{font-style:italic}
+.li{padding-left:12pt;text-indent:-8pt}</style></head><body><div class=page>
+${body}
+</div></body></html>`;
+}
+function docxXml() {
+  const f = A(D.font) in FONTS ? D.font : "Calibri", F = `<w:rFonts w:ascii="${f}" w:hAnsi="${f}" w:cs="${f}"/>`;
+  const X = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const r = (t, p = "") => `<w:r><w:rPr>${F}${p}</w:rPr><w:t xml:space="preserve">${X(t)}</w:t></w:r>`;
+  const p = (runs, pp = "") => `<w:p><w:pPr>${pp}</w:pPr>${runs}</w:p>`;
+  // Right tab at the text-area edge (8.5in - 2 x 0.6in) puts dates and locations flush right without a table.
+  const TAB = `<w:tabs><w:tab w:val="right" w:pos="10512"/></w:tabs>`;
+  return blocks().map(x => {
+    switch (x.k) {
+      case "name": return p(r(x.t, `<w:b/><w:sz w:val="40"/>`));
+      case "line": return p(r(x.t));
+      case "h": return p(r(x.t, `<w:b/><w:sz w:val="22"/>`), `<w:keepNext/><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="444444"/></w:pBdr><w:spacing w:before="240" w:after="80"/>`);
+      case "row": return p(r(x.l, (x.b ? "<w:b/>" : "") + (x.i ? "<w:i/>" : "")) + (x.r ? `<w:r><w:tab/></w:r>` + r(x.r, x.b ? "<w:b/>" : "") : ""), `<w:keepNext/>${TAB}${x.b ? `<w:spacing w:before="120"/>` : ""}`);
+      case "li": return p(r("- " + x.t), `<w:ind w:left="240" w:hanging="160"/>`);
+      default: return p(r(x.t), `<w:spacing w:before="40"/>`);
+    }
+  }).join("");
+}
+const fname = () => (A(D.name) || "Resume").replace(/[^\w-]+/g, "_") + "_Resume";
+async function docxBlob() {
+  const r = await fetch("/docx", {method:"POST", body:docxXml()});
+  if (!r.ok) throw new Error(await r.text());
+  return r.blob();
+}
+const download = (blob, name) => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); };
+
+// ---------- live checks ----------
+function checks() {
+  const out = [], w = (sev, m) => out.push([sev, m]);
+  if (!A(D.name)) w("high", "Add your name: parsers read the first line as the name.");
+  else if (!/^[A-Za-zÀ-ɏ'. -]+$/.test(A(D.name)) || A(D.name).split(/\s+/).length < 2) w("med", "Name should be first and last name only, letters only.");
+  if (!A(D.email)) w("high", "Add an email address."); else if (!emailOk(D.email)) w("high", "Email looks malformed.");
+  if (!A(D.phone)) w("med", "Add a phone number.");
+  else if (!/^\+/.test(A(D.phone))) w("low", "Phone has no +country code: Workday infers it from your location or the job posting.");
+  if (!A(D.location)) w("low", "Add a location (City, Region): Workday and Lever autofill it.");
+  else if (!locOk(D.location)) w("med", 'Write location as "City, Region", e.g. "Vancouver, BC".');
+  lines(D.links).filter(u => /replace|your-?name|xxx|example/i.test(u)).forEach(u => w("high", `Placeholder link left in: ${u}`));
+  const kinds = new Set(), date = (s, what) => { if (!A(s)) return; const d = nd(s); if (!d.ok) w("med", `${what}: date "${A(s)}" not understood; use "Jan 2020" or "Present".`); else if (d.s !== "Present") kinds.add(/^\d{4}$/.test(d.s) ? "YYYY" : "Mon YYYY"); };
+  D.experience.forEach((x, i) => {
+    const n = A(x.title) || `Job ${i + 1}`;
+    if (!A(x.company)) w("high", `${n}: no company. Recruiter searches by employer miss it.`);
+    if (!A(x.title)) w("high", `Job ${i + 1}: no job title.`);
+    else if (/[\u2192|\/]/.test(x.title)) w("med", `${n}: one title per job; "->", "|" or "/" get stored as one title string. Split promotions into separate jobs.`);
+    if (!A(x.from)) w("high", `${n}: no start date; the job is dropped by parsers that key on date ranges.`);
+    if (!A(x.to)) w("high", `${n}: no end date; write "Present" for a current job.`);
+    if (!locOk(x.location)) w("med", `${n}: write location as "City, Region".`);
+    if (!lines(x.bullets).length) w("low", `${n}: no bullet points; keyword search has nothing to match.`);
+    date(x.from, n); date(x.to, n);
+  });
+  D.education.forEach((x, i) => {
+    const n = A(x.school) || `School ${i + 1}`;
+    if (A(x.school) && !SCHOOL.test(x.school)) w("low", `"${n}" has no "University/College/Institute/School" in it: parsers may not see it as a school.`);
+    if (A(x.degree) && !DEGREE.test(x.degree)) w("low", `${n}: use the full degree name, e.g. "Bachelor of Science".`);
+    date(x.from, n); date(x.to, n);
+  });
+  D.certifications.forEach(x => date(x.date, A(x.name) || "Certification"));
+  D.projects.forEach(x => date(x.date, A(x.name) || "Project"));
+  if (kinds.size > 1) w("low", "Mixed date formats (YYYY and Mon YYYY): use months everywhere.");
+  if (!D.experience.length) w("med", "No experience entries.");
+  if (!D.skills.some(x => A(x.items))) w("med", "No skills: recruiters filter on exact skill keywords.");
+  if (!A(D.languages)) w("low", "No spoken languages: Workday's Languages field stays empty.");
+  const fancy = (JSON.stringify(D).match(FANCY) || []).length;
+  if (fancy) w("ok", `${fancy} smart quote(s), dash(es) or symbol(s) will be written as plain ASCII.`);
+  out.sort((a, b) => ["high","med","low","ok"].indexOf(a[0]) - ["high","med","low","ok"].indexOf(b[0]));
+  document.getElementById("checks").innerHTML = out.length ? out.map(([s, m]) => `<li class=${s}>${esc(m)}</li>`).join("") : `<li class=ok>No issues.</li>`;
+}
+function lintEl(el) {
+  const k = el.dataset.k, v = el.value;
+  const bad = ["from","to","date"].includes(k) ? !nd(v).ok : k === "location" ? !locOk(v) : k === "email" ? !emailOk(v) : false;
+  el.classList.toggle("bad", bad);
+  el.setAttribute("aria-invalid", bad);
+}
+
+// ---------- form ----------
+function renderForm() {
+  document.querySelectorAll("[data-k]:not([data-list])").forEach(el => { el.value = D[el.dataset.k] ?? ""; lintEl(el); });
+  for (const [list, [one, fields]] of Object.entries(LISTS)) {
+    const box = document.getElementById("l-" + list);
+    box.innerHTML = D[list].map((item, i) => `<fieldset class=item data-list=${list} data-i=${i}><legend>${one} ${i + 1}</legend><div class=grid>` +
+      fields.map(([k, label, ph, kind]) => {
+        const at = `data-list=${list} data-i=${i} data-k=${k} placeholder="${esc(ph)}"`;
+        const ctl = kind === "ta" ? `<textarea rows=4 ${at}></textarea>` : kind === "sel" ? `<select ${at}>${EXTRA.map(o => `<option>${o}</option>`).join("")}</select>` : `<input ${at}>`;
+        return `<label class="${kind === "ta" ? "wide" : ""}">${label}${ctl}</label>`;
+      }).join("") +
+      `<div class=acts><button data-act=up aria-label="Move ${one} ${i + 1} up">Up</button><button data-act=down aria-label="Move ${one} ${i + 1} down">Down</button><button data-act=del aria-label="Remove ${one} ${i + 1}">Remove</button></div></div></fieldset>`).join("");
+    box.querySelectorAll("[data-k]").forEach(el => { el.value = D[list][+el.dataset.i][el.dataset.k] ?? (el.tagName === "SELECT" ? EXTRA[0] : ""); lintEl(el); });
+  }
+  const sel = document.getElementById("docs");
+  sel.innerHTML = Object.entries(store.docs).map(([id, d]) => `<option value=${id}${id === store.cur ? " selected" : ""}>${esc(d.title)}</option>`).join("");
+  document.getElementById("title").value = store.docs[store.cur].title;
+}
+let timer;
+function changed(structural) {
+  save();
+  if (structural) typedAt = 0; // next keystroke starts a new undo step
+  if (structural) renderForm();
+  clearTimeout(timer);
+  timer = setTimeout(() => { checks(); const f = document.getElementById("prev"), y = f.contentWindow?.scrollY || 0; f.onload = () => f.contentWindow.scrollTo(0, y); f.srcdoc = html(); }, 150);
+}
+document.addEventListener("input", e => {
+  const el = e.target;
+  if (el.id === "title") { store.docs[store.cur].title = el.value || "Untitled"; save(); document.querySelector(`#docs option[value=${store.cur}]`).textContent = store.docs[store.cur].title; return; }
+  if (!el.dataset.k) return;
+  if (Date.now() - typedAt > 1500) snap();
+  typedAt = Date.now();
+  if (el.dataset.list) D[el.dataset.list][+el.dataset.i][el.dataset.k] = el.value; else D[el.dataset.k] = el.value;
+  lintEl(el);
+  changed(false);
+});
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-act]");
+  if (!b) return;
+  snap();
+  if (b.dataset.act === "add") { const l = b.dataset.list; D[l].push(l === "extra" ? {title:EXTRA[0]} : {}); changed(true); document.querySelector(`#l-${l} fieldset:last-child [data-k]`)?.focus(); return; }
+  const card = b.closest(".item"), a = D[card.dataset.list], i = +card.dataset.i;
+  if (b.dataset.act === "del") a.splice(i, 1);
+  else { const j = b.dataset.act === "up" ? i - 1 : i + 1; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; }
+  changed(true);
+});
+
+// ---------- documents, import / export ----------
+function openDoc(id) { store.cur = id; D = store.docs[id].data; hist = []; document.getElementById("rep").srcdoc = ""; tab("prev"); changed(true); }
+function add(title, data) { const id = "r" + Date.now().toString(36); store.docs[id] = {title, data:Object.assign(blank(), data)}; openDoc(id); }
+// Browser print headers/footers that leaked into the text layer (same pattern the analyzer flags).
+const LEAK = /^\d{1,2}\/\d{1,2}\/\d{2,4},\s*\d{1,2}:\d{2}|(?:file|ﬁle):\/\/\/|^Page \d+ of \d+$/;
+// Rejoin lines the PDF wrapped. With bullet markers, unmarked lines continue the bullet above;
+// without them, a line continues when the one above has no end punctuation and it does not start a new capitalized sentence.
+const joinBullets = ls => {
+  const has = ls.some(l => BULLET.test(l)), out = [];
+  for (const l of ls.filter(l => !LEAK.test(l))) {
+    const prev = out[out.length - 1];
+    const cont = prev !== undefined && (has ? !BULLET.test(l) : !/[.!?]$/.test(prev) && (!/^[A-Z]/.test(l) || /[,(&\/–—-]$/.test(prev)));
+    if (cont) out[out.length - 1] += (/-$/.test(prev) && /^\d/.test(l) ? "" : " ") + l.trim(); else out.push(l.replace(BULLET, ""));
+  }
+  return out.join("\n");
+};
+const fromParsed = j => ({
+  name:j.name, email:j.email, phone:j.phone, location:j.location, links:j.links.join("\n"), summary:j.summary, languages:j.languages.join(", "),
+  experience:j.experience.map(e => ({company:e.company, location:e.location, title:e.title, from:e.from, to:e.to, bullets:joinBullets(e.bullets)})),
+  education:j.education.map(e => ({...e, details:""})),
+  skills:j.skills.map(g => ({group:g.group, items:g.items.join(", ")})),
+  certifications:j.certifications.map(c => ({name:c})),
+});
+document.getElementById("docs").onchange = e => openDoc(e.target.value);
+document.getElementById("imp").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  status("Parsing " + f.name + "…");
+  try {
+    const r = await fetch("/analyze?format=json&name=" + encodeURIComponent(f.name), {method:"POST", body:f});
+    if (!r.ok) throw new Error(r.status === 413 ? "File is over 20 MB." : await r.text());
+    add(f.name.replace(/\.\w+$/, ""), fromParsed(await r.json()));
+    status("Imported " + f.name + ". Review every field: this is what the parser understood.");
+  } catch (err) { status("Import failed: " + err.message); }
+};
+document.getElementById("impj").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  try {
+    const j = JSON.parse(await f.text()), data = j.data || j;
+    if (typeof data !== "object" || Array.isArray(data)) throw new Error("not a resume object");
+    for (const k of Object.keys(LISTS)) if (data[k] !== undefined && !Array.isArray(data[k])) throw new Error(`"${k}" must be a list`);
+    add(j.title || f.name.replace(/\.json$/, ""), data);
+    status("Imported " + f.name);
+  } catch (err) { status("Not a resume JSON file: " + err.message); }
+};
+function tab(name) {
+  document.querySelectorAll("[data-tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === name));
+  document.getElementById("prev").hidden = name !== "prev";
+  document.getElementById("rep").hidden = name !== "rep";
+}
+document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => tab(b.dataset.tab));
+async function check(kind) {
+  const rep = document.getElementById("rep");
+  tab("rep");
+  rep.srcdoc = `<p style="font:14px system-ui;padding:16px">Running the parser on the ${kind.toUpperCase()} version…</p>`;
+  try {
+    const body = kind === "docx" ? await docxBlob() : new Blob([html()], {type:"text/html"});
+    const r = await fetch("/analyze?name=" + encodeURIComponent(fname() + "." + kind), {method:"POST", body});
+    const t = await r.text();
+    rep.srcdoc = r.ok ? t.replace(/<p><a href="\/">.*?<\/a><\/p>/, "") : `<p style="font:14px system-ui;padding:16px;color:#c0362c">${esc(t)}</p>`;
+  } catch (err) { rep.srcdoc = `<p style="font:14px system-ui;padding:16px;color:#c0362c">Could not reach the server: ${esc(err.message)}</p>`; }
+}
+const CMDS = {
+  new: () => add("Untitled " + (Object.keys(store.docs).length + 1), {}),
+  example: () => add("Example", JSON.parse(JSON.stringify(EXAMPLE))),
+  dup: () => add(store.docs[store.cur].title + " copy", JSON.parse(JSON.stringify(D))),
+  del: () => {
+    if (!confirm(`Delete "${store.docs[store.cur].title}" from this browser? This cannot be undone.`)) return;
+    delete store.docs[store.cur];
+    const ids = Object.keys(store.docs);
+    if (ids.length) openDoc(ids[0]); else add("My resume", {});
+  },
+  undo: () => { const s = hist.pop(); if (!s) return status("Nothing to undo."); store.docs[store.cur].data = D = JSON.parse(s); changed(true); },
+  imp: () => document.getElementById("imp").click(),
+  impj: () => document.getElementById("impj").click(),
+  json: () => download(new Blob([JSON.stringify(store.docs[store.cur], null, 2)], {type:"application/json"}), fname() + ".json"),
+  html: () => download(new Blob([html()], {type:"text/html"}), fname() + ".html"),
+  docx: async () => { try { download(await docxBlob(), fname() + ".docx"); } catch (err) { status("DOCX failed: " + err.message); } },
+  print: () => {
+    tab("prev");
+    status('In the print dialog choose "Save as PDF" and turn OFF "Headers and footers": they put the date and a URL into the PDF text layer.');
+    const f = document.getElementById("prev");
+    f.onload = () => f.contentWindow.print();
+    f.srcdoc = html();
+  },
+  "check-docx": () => check("docx"),
+  "check-html": () => check("html"),
+};
+document.querySelector("header").addEventListener("click", e => { const c = e.target.closest("[data-cmd]"); if (c) CMDS[c.dataset.cmd](); });
+changed(true);
+</script></body></html>

@@ -24,8 +24,10 @@ output.
 .PP
 With
 .BR serve ,
-it runs a local upload page instead (see
-.BR "WEB UPLOAD PAGE" ).
+it runs a local upload page and resume editor instead (see
+.B "WEB UPLOAD PAGE"
+and
+.BR "RESUME EDITOR" ).
 .SH OPTIONS
 .TP
 .I resume
@@ -62,6 +64,31 @@ The server listens on the loopback address only. Choose or drop a resume
 browser. Each upload is written to an owner-only temporary file, parsed,
 and deleted; nothing is stored or sent elsewhere. Unsupported types return
 HTTP 400, unparseable files 422, and files over 20 MB 413.
+.SH RESUME EDITOR
+.BI http://127.0.0.1: port /editor
+builds resumes in the layout this tool parses best: one column, no tables,
+text boxes, headers or footers, standard section names, hyphen bullets,
+dates written as
+.B "Jan 2020 \- Present"
+and links with
+.BR https:// .
+Smart quotes, dashes, symbol bullets and ligatures are written as plain
+ASCII.
+.PP
+Start from a blank resume or an example, or import a PDF, DOCX, HTML or TXT
+file; the fields are pre-filled from the parser's output (PDF line wraps are
+rejoined by heuristic, so review the bullets). Live checks flag missing
+contact fields, jobs without a title, company or dates, unrecognized dates,
+locations not written as "City, Region", placeholder links and titles that
+hold several roles.
+.PP
+Export as DOCX, HTML, PDF (through the browser's print dialog; turn off
+"Headers and footers") or JSON. The ATS check buttons run the parser on the
+DOCX or HTML output and show the report beside the preview.
+.PP
+Resumes are kept in the browser's local storage for this address, not on
+disk; export JSON to back them up. Undo covers the last 100 changes of the
+open resume.
 .SH REPORT
 .TP
 .B Parse health
@@ -126,7 +153,7 @@ No input file given.
 .nf
 ats-viewer resume.pdf
 ats-viewer resume.html \-o /tmp/report.html
-ats-viewer serve 3000
+ats-viewer serve 3000   # then open http://127.0.0.1:3000/editor
 .fi
 .SH BUGS
 Legacy .doc input is not supported. The location split assumes a city of one or
