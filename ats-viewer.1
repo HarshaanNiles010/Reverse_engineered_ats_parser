@@ -23,11 +23,19 @@ output.
 .I resume
 Input file. Supported: PDF
 .RB ( .pdf ),
+Word
+.RB ( .docx ),
 HTML
 .RB ( .html ", " .htm )
 and plain text
 .RB ( .txt ).
-DOCX is not supported; export it to PDF first.
+Legacy binary Word
+.RB ( .doc )
+is not supported; save it as DOCX first.
+.IP
+DOCX text is read the way Apache Tika orders it: header parts, then the
+body, then footer parts. VBA macros, tables, text boxes and header or
+footer text are reported as findings.
 .TP
 .BI \-o " report.html"
 Write the report to this path. Default:
@@ -44,7 +52,8 @@ acceptance: Workday (PDF, DOC, DOCX, HTML, TXT, up to 5 MB), Ashby (up to
 6 MB) and Lever (up to 100 MB).
 .TP
 .B Findings
-Missing name, email or phone; placeholder URLs; non-standard or combined
+Missing name, email or phone; DOCX macros, tables, text boxes and
+header or footer text; placeholder URLs; non-standard or combined
 section headers; page headers and footers in the text layer, including
 those merged into job descriptions; words split by stray spaces; jobs
 without a title or company; end dates other than
@@ -100,7 +109,7 @@ ats-viewer resume.pdf
 ats-viewer resume.html \-o /tmp/report.html
 .fi
 .SH BUGS
-DOCX input is not supported. The location split assumes a city of one or
+Legacy .doc input is not supported. The location split assumes a city of one or
 two words, so "Acme San Francisco, CA" is read as company "Acme San".
 Section headers in all capitals that are not recognized, such as a company
 name like "IBM" on its own line, are treated as unknown sections.

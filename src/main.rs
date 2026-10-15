@@ -163,16 +163,31 @@ fn classify_header(line: &str) -> Option<(&'static str, bool)> {
 }
 
 fn parse_experience(lines: &[&str], rr: &Regex) -> Vec<Exp> {
+    let loc_only = re(r"^[A-Z][a-zA-Z.]+(?: [A-Z][a-zA-Z.]+)?, [A-Z][A-Za-z]+(?: [A-Z][a-z]+)*$");
     let idx: Vec<usize> = (0..lines.len()).filter(|&i| rr.is_match(lines[i])).collect();
-    let mut out = vec![];
+    let (mut out, mut starts) = (vec![], vec![]);
     for (n, &k) in idx.iter().enumerate() {
         let floor = if n == 0 { 0 } else { idx[n - 1] + 1 };
         let c = rr.captures(lines[k]).unwrap();
         let whole = c.get(0).unwrap();
         let rest = format!("{} {}", &lines[k][..whole.start()], &lines[k][whole.end()..]);
         let mut e = Exp { title: rest.trim().trim_matches(|ch: char| " |,–—-".contains(ch)).into(), ..Default::default() };
-        if k > floor && !is_sentence(lines[k - 1]) {
-            (e.company, e.location) = split_location(lines[k - 1]);
+        // Header lines above the date line, nearest first, never crossing the previous job or a sentence.
+        // Date alone on its line: look up to 3 lines (title, location, company); else 1 (company + location).
+        let mut above = vec![];
+        let mut i = k;
+        while i > floor && above.len() < if e.title.is_empty() { 3 } else { 1 } && !is_sentence(lines[i - 1]) {
+            i -= 1;
+            above.push(lines[i]);
+        }
+        let mut above = above.into_iter();
+        if e.title.is_empty() {
+            e.title = above.next().unwrap_or_default().into();
+        }
+        match above.next() {
+            Some(l) if loc_only.is_match(l) && above.len() > 0 => (e.location, e.company) = (l.into(), above.next().unwrap_or_default().into()),
+            Some(l) => (e.company, e.location) = split_location(l),
+            None => {}
         }
         if e.company.is_empty() {
             for sep in [" | ", " at ", " @ ", " - ", " – "] {
@@ -192,13 +207,13 @@ fn parse_experience(lines: &[&str], rr: &Regex) -> Vec<Exp> {
             "current" | "now" | "today" => None,
             _ => Some(e.raw_to.clone()),
         };
-        let end = match idx.get(n + 1) {
-            Some(&nk) if nk - 1 > k && !is_sentence(lines[nk - 1]) => nk - 1,
-            Some(&nk) => nk,
-            None => lines.len(),
-        };
-        e.description = lines[k + 1..end].iter().map(|s| s.to_string()).collect();
+        // Header starts at the farthest line actually used; unused lookback lines stay in the previous description.
+        starts.push(i + above.len());
         out.push(e);
+    }
+    for n in 0..out.len() {
+        let end = starts.get(n + 1).copied().unwrap_or(lines.len());
+        out[n].description = lines[idx[n] + 1..end.max(idx[n] + 1)].iter().map(|s| s.to_string()).collect();
     }
     out
 }
@@ -313,21 +328,78 @@ fn extract(path: &Path) -> Result<String, String> {
             let h = re(r"(?is)<(head|script|style)[^>]*>.*?</(head|script|style)>").replace_all(&h, "");
             let h = re(r"(?i)<br\s*/?>|</(p|div|li|h\d|tr|section|header)>").replace_all(&h, "\n");
             let h = re(r"<[^>]+>").replace_all(&h, " ");
-            let named = [("nbsp", " "), ("lt", "<"), ("gt", ">"), ("quot", "\""), ("ndash", "–"), ("mdash", "—"), ("rarr", "→"), ("middot", "·"), ("bull", "•"), ("hellip", "…"), ("rsquo", "’"), ("lsquo", "‘"), ("ldquo", "“"), ("rdquo", "”")];
-            let h = re(r"&(#x[0-9a-fA-F]+|#\d+|[a-z]+);").replace_all(&h, |c: &regex::Captures| {
-                let e = &c[1];
-                let num = e.strip_prefix("#x").map(|x| u32::from_str_radix(x, 16).ok()).unwrap_or_else(|| e.strip_prefix('#').and_then(|d| d.parse().ok()));
-                match num {
-                    Some(n) => char::from_u32(n).map(String::from).unwrap_or_default(),
-                    None => named.iter().find(|x| x.0 == e).map(|x| x.1.to_string()).unwrap_or_else(|| c[0].to_string()),
-                }
-            });
-            // &amp; last so "&amp;lt;" stays literal.
-            Ok(h.replace("&amp;", "&"))
+            Ok(decode_entities(&h))
         }
-        // shortcut: no DOCX reader; add docx-rs/zip if DOCX support is needed.
-        _ => Err(format!("'.{ext}' not supported by this viewer; export to PDF, HTML or TXT")),
+        "docx" => read_docx(path),
+        _ => Err(format!("'.{ext}' not supported by this viewer; use PDF, DOCX, HTML or TXT")),
     }
+}
+
+fn decode_entities(h: &str) -> String {
+    let named = [("nbsp", " "), ("lt", "<"), ("gt", ">"), ("quot", "\""), ("apos", "'"), ("ndash", "–"), ("mdash", "—"), ("rarr", "→"), ("middot", "·"), ("bull", "•"), ("hellip", "…"), ("rsquo", "’"), ("lsquo", "‘"), ("ldquo", "“"), ("rdquo", "”")];
+    let h = re(r"&(#x[0-9a-fA-F]+|#\d+|[a-z]+);").replace_all(h, |c: &regex::Captures| {
+        let e = &c[1];
+        let num = e.strip_prefix("#x").map(|x| u32::from_str_radix(x, 16).ok()).unwrap_or_else(|| e.strip_prefix('#').and_then(|d| d.parse().ok()));
+        match num {
+            Some(n) => char::from_u32(n).map(String::from).unwrap_or_default(),
+            None => named.iter().find(|x| x.0 == e).map(|x| x.1.to_string()).unwrap_or_else(|| c[0].to_string()),
+        }
+    });
+    // &amp; last so "&amp;lt;" stays literal.
+    h.replace("&amp;", "&")
+}
+
+/// Text of one WordprocessingML part: <w:t> runs, paragraph ends and breaks as newlines, tabs as tabs.
+fn docx_xml_text(xml: &str) -> String {
+    // Drop VML fallbacks: they duplicate text-box content already in mc:Choice.
+    let xml = re(r"(?s)<mc:Fallback>.*?</mc:Fallback>").replace_all(xml, "");
+    let tok = re(r"<w:t(?:\s[^>]*)?>([^<]*)</w:t>|(</w:p>|<w:br\b[^>]*/>|<w:cr/>)|(<w:tab/>)");
+    let mut out = String::new();
+    for c in tok.captures_iter(&xml) {
+        match (c.get(1), c.get(2)) {
+            (Some(t), _) => out.push_str(&decode_entities(t.as_str())),
+            (_, Some(_)) => out.push('\n'),
+            _ => out.push('\t'),
+        }
+    }
+    out
+}
+
+/// Reads DOCX like Tika does: headers first, then body, then footers. Container findings are
+/// returned as text lines prefixed "\0ats:" so main() can turn them into warnings.
+fn read_docx(path: &Path) -> Result<String, String> {
+    use std::io::Read;
+    const MAX_PART: u64 = 20 * 1024 * 1024; // zip-bomb guard per XML part
+    let f = fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(f).map_err(|e| format!("not a valid DOCX (zip) file: {e}"))?;
+    let names: Vec<String> = zip.file_names().filter_map(|n| n.ok().map(String::from)).collect();
+    let mut read = |name: &str| -> Result<String, String> {
+        let mut s = String::new();
+        zip.by_name(name).map_err(|e| e.to_string())?.take(MAX_PART).read_to_string(&mut s).map_err(|e| format!("{name}: {e}"))?;
+        Ok(s)
+    };
+    let body = read("word/document.xml")?;
+    let mut parts = |prefix: &str| -> Result<String, String> {
+        let mut v: Vec<&String> = names.iter().filter(|n| n.starts_with(prefix) && n.ends_with(".xml")).collect();
+        v.sort();
+        v.into_iter().map(|n| read(n).map(|x| docx_xml_text(&x))).collect::<Result<Vec<_>, _>>().map(|t| t.join("\n"))
+    };
+    let (headers, footers) = (parts("word/header")?, parts("word/footer")?);
+    let mut notes = vec![];
+    if names.iter().any(|n| n.ends_with("vbaProject.bin")) {
+        notes.push("high|Contains VBA macros: Workday's upload scan flags containsMacros and blocks the file.");
+    }
+    if body.contains("<w:tbl>") || body.contains("<w:tbl ") {
+        notes.push("med|Uses tables: cells are read one after another, so side-by-side columns interleave.");
+    }
+    if body.contains("w:txbxContent") {
+        notes.push("med|Uses text boxes: some parsers skip them or place their text out of order.");
+    }
+    if !(headers.trim().is_empty() && footers.trim().is_empty()) {
+        notes.push("med|Text in Word header/footer: some parsers drop it, others merge it into the body.");
+    }
+    let notes: String = notes.iter().map(|n| format!("\0ats:{n}\n")).collect();
+    Ok(format!("{notes}{headers}\n{}\n{footers}", docx_xml_text(&body)))
 }
 
 fn esc(s: &str) -> String {
@@ -343,7 +415,7 @@ fn normalize(s: &str) -> String {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let Some(input) = args.get(1) else {
-        eprintln!("usage: ats-viewer <resume.pdf|.html|.txt> [-o report.html]");
+        eprintln!("usage: ats-viewer <resume.pdf|.docx|.html|.txt> [-o report.html]");
         std::process::exit(2);
     };
     let path = Path::new(input);
@@ -383,6 +455,16 @@ fn main() {
             std::process::exit(1);
         }
     };
+    let text: String = text
+        .split_inclusive('\n')
+        .filter(|l| match l.strip_prefix("\0ats:").and_then(|n| n.trim_end().split_once('|')) {
+            Some((sev, msg)) => {
+                w(if sev == "high" { "high" } else { "med" }, msg.to_string());
+                false
+            }
+            None => true,
+        })
+        .collect();
     let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     if text.split_whitespace().count() < 50 {
         w("high", "Almost no text layer. Image-only PDF (Canva/scan): every ATS field will be empty.".into());
@@ -715,8 +797,21 @@ mod tests {
     fn experience_and_skills() {
         let lines = ["Acme Corp Toronto, ON", "Engineer Jan 2020 – Now", "Did things.", "Senior PM | Google 2018 - 2019"];
         let e = parse_experience(&lines, &range_re());
+        let apy = parse_experience(&["ApyHub Vancouver, British Columbia", "Engineer Feb 2026 – Present"], &range_re());
+        assert_eq!((apy[0].company.as_str(), apy[0].location.as_str()), ("ApyHub", "Vancouver, British Columbia"));
         assert_eq!((e[0].company.as_str(), e[0].title.as_str(), e[0].to.is_none()), ("Acme Corp", "Engineer", true));
         assert_eq!((e[1].title.as_str(), e[1].company.as_str()), ("Senior PM", "Google"));
+        let one_per_line = ["Acme", "Toronto, ON", "Engineer", "Jan 2020 – Present", "Shipped it.", "Beta Inc.", "Analyst", "2018 - 2019"];
+        let e = parse_experience(&one_per_line, &range_re());
+        assert_eq!((e[0].title.as_str(), e[0].company.as_str(), e[0].location.as_str()), ("Engineer", "Acme", "Toronto, ON"));
+        assert_eq!((e[1].title.as_str(), e[1].company.as_str()), ("Analyst", "Beta Inc."));
+        assert_eq!(e[0].description, vec!["Shipped it."]);
         assert_eq!(split_skills("AWS (EC2, S3), Docker; Rust"), vec!["AWS (EC2, S3)", "Docker", "Rust"]);
+    }
+
+    #[test]
+    fn docx_xml_to_text() {
+        let xml = r#"<w:p><w:r><w:t>Jane</w:t></w:r><w:r><w:t xml:space="preserve"> Doe &amp; Co</w:t></w:r></w:p><w:p><w:r><w:t>A</w:t><w:tab/><w:t>B</w:t><w:br/><w:t>C</w:t></w:r></w:p><mc:Fallback><w:t>dup</w:t></mc:Fallback>"#;
+        assert_eq!(docx_xml_text(xml), "Jane Doe & Co\nA\tB\nC\n");
     }
 }

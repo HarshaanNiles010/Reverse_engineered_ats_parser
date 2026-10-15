@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 pdf-extract = "0.12"
 regex = "1.13.1"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
