@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = "0.8"
 pdf-extract = "0.12"
 regex = "1.13.1"
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }

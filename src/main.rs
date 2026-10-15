@@ -7,6 +7,8 @@ use regex::Regex;
 use std::fmt::Write as _;
 use std::{fs, path::Path};
 
+mod web;
+
 const MON: &str = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?";
 const WORKDAY_TYPES: &[&str] = &["pdf", "docx", "doc", "html", "htm", "txt"];
 const FIELDS_OF_STUDY: &[&str] = &[
@@ -232,6 +234,7 @@ fn take_dates(l: &str, rr: &Regex, dr: &Regex) -> (String, String, String) {
 fn parse_education(lines: &[&str], rr: &Regex, dr: &Regex) -> (Vec<Edu>, Vec<String>) {
     let school_re = re(r"(?i)\b(university|college|institute|school|polytechnic|academy)\b");
     let degree_re = re(r"(?i)\b(bachelor|master|doctor|associate|diploma|b\.?\s?sc|b\.?\s?eng|b\.?\s?tech|m\.?\s?sc|mba|m\.?\s?eng|ph\.?\s?d)\b");
+    let loc_only = re(r"^[A-Z][a-zA-Z.]+(?: [A-Z][a-zA-Z.]+)?, [A-Z][A-Za-z]+(?: [A-Z][a-z]+)*$");
     let cert_re = re(r"(?i)(certif|comptia|security\+|aws certified|pmp|cissp|scrum master|\(\w{2,4}-\d{3}\))");
     let (mut out, mut stray) = (Vec::<Edu>::new(), vec![]);
     for l in lines {
@@ -258,6 +261,13 @@ fn parse_education(lines: &[&str], rr: &Regex, dr: &Regex) -> (Vec<Edu>, Vec<Str
             out.push(Edu { school: s, location: loc, from, to, ..Default::default() });
         } else if cert_re.is_match(&rest) {
             stray.push(rest);
+        } else if let Some(e) = out.last_mut() {
+            // One-item-per-line layouts: a bare location or bare date line belongs to the school above.
+            if rest.is_empty() && e.to.is_empty() {
+                (e.from, e.to) = (from, to);
+            } else if e.location.is_empty() && loc_only.is_match(&rest) {
+                e.location = rest;
+            }
         }
     }
     (out, stray)
@@ -414,8 +424,12 @@ fn normalize(s: &str) -> String {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("serve") {
+        let port = args.get(2).and_then(|p| p.parse().ok()).unwrap_or(8080);
+        return web::serve(port);
+    }
     let Some(input) = args.get(1) else {
-        eprintln!("usage: ats-viewer <resume.pdf|.docx|.html|.txt> [-o report.html]");
+        eprintln!("usage: ats-viewer <resume.pdf|.docx|.html|.txt> [-o report.html]\n       ats-viewer serve [port]");
         std::process::exit(2);
     };
     let path = Path::new(input);
@@ -423,13 +437,23 @@ fn main() {
         Some(i) => args.get(i + 1).cloned().unwrap_or_else(|| "report.html".into()),
         None => format!("{}.ats.html", path.file_stem().and_then(|s| s.to_str()).unwrap_or("resume")),
     };
-    let size = match fs::metadata(path) {
-        Ok(m) => m.len(),
-        Err(e) => {
-            eprintln!("cannot read {input}: {e}");
-            std::process::exit(1);
-        }
-    };
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let (html, summary) = analyze(path, &name).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1);
+    });
+    if let Err(e) = fs::write(&out_path, html) {
+        eprintln!("cannot write {out_path}: {e}");
+        std::process::exit(1);
+    }
+    print!("{summary}");
+    println!("Report: {out_path}");
+}
+
+/// Parses one resume file. Returns the HTML report and a plain-text summary.
+/// `display_name` is shown in the report instead of the on-disk path (uploads use temp files).
+fn analyze(path: &Path, display_name: &str) -> Result<(String, String), String> {
+    let size = fs::metadata(path).map_err(|e| format!("cannot read {display_name}: {e}"))?.len();
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     let mut warns: Vec<Warn> = vec![];
     let mut w = |sev: &'static str, msg: String| warns.push(Warn { sev, msg });
@@ -448,13 +472,7 @@ fn main() {
     }
 
     // 2. Text extraction.
-    let text = match extract(path) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("{e}");
-            std::process::exit(1);
-        }
-    };
+    let text = extract(path)?;
     let text: String = text
         .split_inclusive('\n')
         .filter(|l| match l.strip_prefix("\0ats:").and_then(|n| n.trim_end().split_once('|')) {
@@ -637,7 +655,7 @@ nav a{{margin-right:14px;color:var(--acc)}}</style></head><body><main>
 <h1>What the recruiter sees</h1><p class=note>{fname} · {mb:.2} MB · simulated from reverse-engineered candidate-side code. Server parsers are closed, so field values are a heuristic estimate. Recruiters see these fields unless the candidate corrects them before submitting.</p>
 <nav><a href="#score">Score</a><a href="#workday">Workday</a><a href="#lever">Lever</a><a href="#greenhouse">Greenhouse</a><a href="#search">Keyword search</a><a href="#raw">Raw text</a></nav>
 <div class=card id=score><h2>Parse health</h2><div class="score {sc}">{score}/100</div><p class=note>Heuristic: high −12, medium −5, low −1. Not a vendor score.</p><table>"##,
-        fname = esc(&path.file_name().unwrap_or_default().to_string_lossy()),
+        fname = esc(display_name),
         sc = if score >= 80 { "ok" } else if score >= 50 { "med" } else { "high" });
     for (name, ok, rule) in &ingest {
         let _ = write!(h, "<tr><th>{name} upload</th><td class={}>{}</td><td class=note>{rule}</td></tr>", if *ok { "ok" } else { "high" }, if *ok { "accepted" } else { "rejected" });
@@ -756,21 +774,17 @@ nav a{{margin-right:14px;color:var(--acc)}}</style></head><body><main>
     // Search + raw
     let norm = normalize(&text);
     let _ = write!(h, r##"<div class=card id=search><h2>Recruiter keyword search</h2><p class=note>Exact-match search on normalized text: lowercase, punctuation → space. No stemming or synonyms.</p>
-<input id=q placeholder="try: python, cross-functional, file, harshaan"><p id=res class=note></p></div>
+<input id=q placeholder="try: python, cross-functional, file"><p id=res class=note></p></div>
 <div class=card id=raw><h2>Raw text layer (what the parser actually reads)</h2><pre>{}</pre></div></main>
 <script>const T=" {} ";const n=s=>s.toLowerCase().replace(/[^\p{{L}}\p{{N}}+#]+/gu," ").trim();
 q.oninput=()=>{{const k=n(q.value);if(!k){{res.textContent="";return}}const c=T.split(" "+k+" ").length-1;res.innerHTML=c?`<span class=ok>${{c}} hit(s)</span> for "${{k}}"`:`<span class=high>no match</span> for "${{k}}"`}}</script></body></html>"##,
         esc(&text), norm);
 
-    if let Err(e) = fs::write(&out_path, h) {
-        eprintln!("cannot write {out_path}: {e}");
-        std::process::exit(1);
-    }
-    println!("Parse health {score}/100 · {} jobs · {} schools · {} skills · {} certs", exps.len(), edus.len(), flat_skills.len(), certs.len());
+    let mut summary = format!("Parse health {score}/100 · {} jobs · {} schools · {} skills · {} certs\n", exps.len(), edus.len(), flat_skills.len(), certs.len());
     for x in warns.iter().filter(|x| x.sev != "low").take(8) {
-        println!("  [{}] {}", x.sev, x.msg);
+        let _ = writeln!(summary, "  [{}] {}", x.sev, x.msg);
     }
-    println!("Report: {out_path}");
+    Ok((h, summary))
 }
 
 #[cfg(test)]
@@ -806,6 +820,9 @@ mod tests {
         assert_eq!((e[0].title.as_str(), e[0].company.as_str(), e[0].location.as_str()), ("Engineer", "Acme", "Toronto, ON"));
         assert_eq!((e[1].title.as_str(), e[1].company.as_str()), ("Analyst", "Beta Inc."));
         assert_eq!(e[0].description, vec!["Shipped it."]);
+        let (ed, stray) = parse_education(&["University of Alberta", "Edmonton, Alberta", "B.Sc. Computer Science", "Sep 2018 – Jun 2022", "CompTIA Security+", "Sep 2024"], &range_re(), &single_date_re());
+        assert_eq!((ed[0].location.as_str(), ed[0].from.as_str(), ed[0].to.as_str(), ed[0].major.as_str()), ("Edmonton, Alberta", "Sep 2018", "Jun 2022", "Computer Science"));
+        assert_eq!(stray, vec!["CompTIA Security+"]);
         assert_eq!(split_skills("AWS (EC2, S3), Docker; Rust"), vec!["AWS (EC2, S3)", "Docker", "Rust"]);
     }
 

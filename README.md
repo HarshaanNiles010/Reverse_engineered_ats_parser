@@ -8,9 +8,11 @@ Server-side parsers are closed, so extracted values are a heuristic estimate.
 
 ```
 cargo run --release -- resume.pdf [-o report.html]
+cargo run --release -- serve [port]   # upload page on http://127.0.0.1:8080
 ```
 
 Accepts PDF, DOCX, HTML or TXT. Writes `<name>.ats.html` with a parse-health score, findings,
 per-ATS profile views, a keyword search box and the raw text layer.
+`serve` shows the same report in the browser; uploads stay on your machine and are deleted after parsing.
 
 Man page: `man ./ats-viewer.1`, or install with `cp ats-viewer.1 /usr/local/share/man/man1/`.

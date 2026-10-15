@@ -6,6 +6,9 @@ ats-viewer \- show what a recruiter sees after an ATS parses a resume
 .I resume
 .RB [ \-o
 .IR report.html ]
+.br
+.B ats-viewer serve
+.RI [ port ]
 .SH DESCRIPTION
 .B ats-viewer
 extracts the text layer of a resume, parses it into the field schema used by
@@ -18,6 +21,11 @@ extracted values are a heuristic estimate, not the vendors' exact output.
 .PP
 A one-line summary and the most severe findings are printed to standard
 output.
+.PP
+With
+.BR serve ,
+it runs a local upload page instead (see
+.BR "WEB UPLOAD PAGE" ).
 .SH OPTIONS
 .TP
 .I resume
@@ -43,6 +51,17 @@ Write the report to this path. Default:
 in the current directory, where
 .I name
 is the input file name without its extension.
+.TP
+.BI serve " \fR[\fPport\fR]\fP"
+Start the upload page on
+.BI http://127.0.0.1: port
+(default 8080).
+.SH WEB UPLOAD PAGE
+The server listens on the loopback address only. Choose or drop a resume
+(PDF, DOCX, HTML or TXT, up to 20 MB) and the same report is shown in the
+browser. Each upload is written to an owner-only temporary file, parsed,
+and deleted; nothing is stored or sent elsewhere. Unsupported types return
+HTTP 400, unparseable files 422, and files over 20 MB 413.
 .SH REPORT
 .TP
 .B Parse health
@@ -107,6 +126,7 @@ No input file given.
 .nf
 ats-viewer resume.pdf
 ats-viewer resume.html \-o /tmp/report.html
+ats-viewer serve 3000
 .fi
 .SH BUGS
 Legacy .doc input is not supported. The location split assumes a city of one or
